@@ -1,4 +1,5 @@
 import numpy as np
+from core.types import SegmentationResult
 
 def mock_segment_image(image, grid_size=8):
     """
@@ -44,4 +45,4 @@ def mock_segment_image(image, grid_size=8):
 
     num_regions = region_id
 
-    return region_map, num_regions
+    return SegmentationResult(region_map, num_regions)

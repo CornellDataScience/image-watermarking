@@ -1,10 +1,12 @@
 #TODO: insert logic here (group 2 - descriptors):
 
-def compute_descriptors(image, region_map, num_regions):
+from core.types import SegmentationResult
+
+def compute_descriptors(image, segmentation):
     descriptors = []
 
-    for r in range(num_regions):
+    for r in range(segmentation.num_regions):
         # compute descriptor
-        descriptors.append(value)
+        descriptors.append(0) #whatever your descriptor is for that region
 
     return descriptors

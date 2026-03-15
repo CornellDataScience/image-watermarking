@@ -1,10 +1,12 @@
-from regions.segment import segment_image
-from descriptors.compute_descriptors import compute_descriptors
+from regions.approach_regions import segment_image
+from descriptors.approach_descriptors import compute_descriptors
+from core.types import SegmentationResult
 
-image = load_image("test.jpg")
 
-region_map, num_regions = segment_image(image)
+image = "insert test image" #TODO: replace with your image loading function (integration) - groups can ignore
 
-descriptors = compute_descriptors(image, region_map, num_regions)
+segmentation = segment_image(image)
+
+descriptors = compute_descriptors(image, segmentation)
 
 print(descriptors)
