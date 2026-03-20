@@ -95,7 +95,7 @@ def meanshift(image):
 
     return SegmentationResult(region_map, num_regions_final)
  
-def segment_image(image, k=3):
+def k_means(image, k=3):
     """
     Segments image into k regions using K-means clustering.
     Returns:

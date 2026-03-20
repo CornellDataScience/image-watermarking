@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from core.types import SegmentationResult
-from regions.approach_regions import slic_superpixels, slic_plus_kmeans, meanshift
+from regions.approach_regions import slic_superpixels, slic_plus_kmeans, meanshift, k_means, sift_features, harris_corners
 import matplotlib.pyplot as plt
 from skimage.segmentation import mark_boundaries
 import cv2
@@ -13,10 +13,9 @@ import numpy as np
 
 from regions.approach_regions import slic_superpixels
 
-def test_segment_image(segment_func, image): 
+def test_segment_image(segment_func, img): 
     print("Running basic functionality test...")
 
-    img = cv2.imread(image)
     result = segment_func(img)
 
     assert result.region_map is not None
@@ -24,20 +23,18 @@ def test_segment_image(segment_func, image):
 
     print("Basic functionality test passed")
 
-def test_region_map_shape(segment_func, image):
+def test_region_map_shape(segment_func, img):
     print("Running shape consistency test...")
 
-    img = cv2.imread(image)
     result = segment_func(img)
 
     assert result.region_map.shape[:2] == img.shape[:2]
 
     print("Shape consistency test passed")
 
-def test_labels_valid(segment_func, image):
+def test_labels_valid(segment_func, img):
     print("Running label validity test...")
 
-    img = cv2.imread(image)
     result = segment_func(img)
 
     region_map = result.region_map
@@ -47,10 +44,8 @@ def test_labels_valid(segment_func, image):
 
     print("Label validity test passed")
 
-def test_deterministic(segment_func, image):
+def test_deterministic(segment_func, img):
     print("Running determinism test...")
-    
-    img = cv2.imread(image)
 
     result1 = segment_func(img)
     result2 = segment_func(img)
@@ -59,47 +54,86 @@ def test_deterministic(segment_func, image):
 
     print("Determinism test passed")
 
-def test_visualize_segmentation(segment_func, image):
-    print("Running visualization test...")
-
-    img = cv2.imread(image)
+def test_visualize(segment_func, img, name):
+    print(f"Running visualization test for {name}...")
     result = segment_func(img)
-
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
+    colors = np.random.randint(0, 255, (result.num_regions, 3), dtype=np.uint8)
+    colored = colors[result.region_map]
     vis = mark_boundaries(img_rgb, result.region_map)
 
-    plt.imshow(vis)
-    plt.title(f"Segments: {result.num_regions}")
-    plt.axis("off")
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle(name, fontsize=14)
+
+    axes[0].imshow(img_rgb)
+    axes[0].set_title("Original")
+    axes[0].axis("off")
+
+    axes[1].imshow(vis)
+    axes[1].set_title(f"Boundaries ({result.num_regions} regions)")
+    axes[1].axis("off")
+
+    axes[2].imshow(colored)
+    axes[2].set_title("Colored Regions")
+    axes[2].axis("off")
+
+    plt.tight_layout()
     plt.show()
 
-def test_visualize_regions_colored(segment_func, image):
-    img = cv2.imread(image)
-    result = segment_func(img)
+def test_visualize_sift(img):
+    print("Running SIFT visualization test...")
 
-    region_map = result.region_map
-    h, w = region_map.shape
+    segmented_img, region_map, num_regions = k_means(img, k=3)
+    sift_img, keypoints, descriptors = sift_features(img)
+    harris_img = harris_corners(img)
 
-    colors = np.random.randint(0, 255, (result.num_regions, 3), dtype=np.uint8)
-    colored = colors[region_map]
+    print(f"Number of regions: {num_regions}")
+    print(f"SIFT keypoints detected: {len(keypoints)}")
 
-    plt.imshow(colored)
-    plt.title("Colored Regions")
+    plt.figure(figsize=(12, 8))
+
+    plt.subplot(2, 2, 1)
+    plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    plt.title("Original Image")
     plt.axis("off")
+
+    plt.subplot(2, 2, 2)
+    plt.imshow(cv2.cvtColor(segmented_img, cv2.COLOR_BGR2RGB))
+    plt.title(f"Segmented Image (k={num_regions})")
+    plt.axis("off")
+
+    plt.subplot(2, 2, 3)
+    plt.imshow(cv2.cvtColor(sift_img, cv2.COLOR_BGR2RGB))
+    plt.title("SIFT Keypoints")
+    plt.axis("off")
+
+    plt.subplot(2, 2, 4)
+    plt.imshow(cv2.cvtColor(harris_img, cv2.COLOR_BGR2RGB))
+    plt.title("Harris Corners")
+    plt.axis("off")
+
+    plt.tight_layout()
     plt.show()
 
-def all_tests(segment_func, image):
-    test_segment_image(segment_func, image)
-    test_region_map_shape(segment_func, image)
-    test_labels_valid(segment_func, image)
-    # test_deterministic(segment_func, image)
-    test_visualize_segmentation(segment_func, image)
-    test_visualize_regions_colored(segment_func, image)
+def all_tests(segment_func, img, name):
+    print(f"\n=== Testing {name} ===")
+    test_segment_image(segment_func, img)
+    test_region_map_shape(segment_func, img)
+    test_labels_valid(segment_func, img)
+    # test_deterministic(segment_func, img)
+    test_visualize(segment_func, img, name)
 
-all_tests(slic_superpixels,"data/dog.jpg")
-all_tests(slic_plus_kmeans,"data/dog.jpg")
-all_tests(meanshift,"data/dog.jpg")
+if __name__ == "__main__":
+    img = cv2.imread("data/dog.jpg")
 
+    for func, name in [
+        (slic_superpixels, "SLIC Superpixels"),
+        (slic_plus_kmeans, "SLIC + KMeans"),
+        (meanshift,        "Mean Shift")
+    ]:
+        all_tests(func, img, name)
+
+    test_visualize_sift(img)
 
 #continue writing more tests for regions below:
