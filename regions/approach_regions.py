@@ -5,6 +5,7 @@ import numpy as np
 from skimage.segmentation import slic
 from skimage import color
 from sklearn.cluster import KMeans, MeanShift, estimate_bandwidth
+import matplotlib.pyplot as plt
 
 import sys
 import os
@@ -93,3 +94,76 @@ def meanshift(image):
     num_regions_final = int(region_map.max() + 1)
 
     return SegmentationResult(region_map, num_regions_final)
+ 
+def segment_image(image, k=3):
+    """
+    Segments image into k regions using K-means clustering.
+    Returns:
+        segmented_image: color-segmented output
+        region_map: label per pixel
+        num_regions: number of clusters (k)
+    """
+    pixel_vals = image.reshape((-1, 3))
+    pixel_vals = np.float32(pixel_vals)
+
+    criteria = (
+        cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+        100,
+        0.2
+    )
+
+    _, labels, centers = cv2.kmeans(
+        pixel_vals,
+        k,
+        None,
+        criteria,
+        10,
+        cv2.KMEANS_RANDOM_CENTERS
+    )
+
+    centers = np.uint8(centers)
+    segmented_data = centers[labels.flatten()]
+    segmented_image = segmented_data.reshape(image.shape)
+
+    region_map = labels.reshape(image.shape[:2])
+    num_regions = k
+
+    return segmented_image, region_map, num_regions
+
+def sift_features(image):
+    """
+    Detects SIFT keypoints and descriptors.
+    Returns:
+        image with keypoints drawn
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    sift = cv2.SIFT_create()
+    keypoints, descriptors = sift.detectAndCompute(gray, None)
+
+    img_keypoints = cv2.drawKeypoints(
+        image,
+        keypoints,
+        None,
+        flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
+    )
+
+    return img_keypoints, keypoints, descriptors
+
+def harris_corners(image):
+    """
+    Detects corners using Harris Corner Detection.
+    Returns:
+        image with corners marked in red
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = np.float32(gray)
+
+    dst = cv2.cornerHarris(gray, 2, 3, 0.04)
+
+    dst = cv2.dilate(dst, None)
+
+    result = image.copy()
+    result[dst > 0.01 * dst.max()] = [0, 0, 255]
+
+    return result
