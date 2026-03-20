@@ -1,21 +1,100 @@
 #TODO: insert logic here (group 1 - regions):
 
-# from core.types import SegmentationResult
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
+from skimage.segmentation import slic
+from skimage import color
+from sklearn.cluster import KMeans, MeanShift, estimate_bandwidth
+import matplotlib.pyplot as plt
 
-# def segment_image(image):
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-#     # algorithm here
-#     region_map = ...
-#     num_regions = ...
+from core.types import SegmentationResult
 
-#     return SegmentationResult(region_map, num_regions)
+def slic_superpixels(image):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_lab = color.rgb2lab(image_rgb)
+    labels = slic(image_lab, n_segments=200, compactness=20, start_label=0)
+    region_map = labels.astype(int)
+    num_regions = int(region_map.max() + 1)
 
-# image_processing_pipeline.py
+    return SegmentationResult(region_map, num_regions)
 
+def slic_plus_kmeans(image):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_lab = color.rgb2lab(image_rgb)
+    labels = slic(image_lab, n_segments=200, compactness=20, start_label=0)
+    num_regions = int(labels.max() + 1)
 
+    region_features = []
+    for i in range(num_regions):
+        mask = labels == i
+
+        avg_color = image_rgb[mask].mean(axis=0)
+
+        y_coords, x_coords = np.where(mask)
+        cx = x_coords.mean() / image.shape[1]
+        cy = y_coords.mean() / image.shape[0]
+        position_weight = 3
+
+        region_features.append([
+            avg_color[0], avg_color[1], avg_color[2],
+            cx * position_weight, cy * position_weight
+        ])
+
+    region_features = np.array(region_features)
+
+    kmeans = KMeans(n_clusters=4)
+    region_groups = kmeans.fit_predict(region_features)
+
+    merged_labels = np.zeros_like(labels)
+    for i in range(num_regions):
+        merged_labels[labels == i] = region_groups[i]
+
+    region_map = merged_labels.astype(int)
+    num_regions_final = int(region_map.max() + 1)
+
+    return SegmentationResult(region_map, num_regions_final)
+
+def meanshift(image):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_lab = color.rgb2lab(image_rgb)
+
+    h, w = image.shape[:2]
+    pixels = image_lab.reshape(-1, 3)
+
+    bandwidth = estimate_bandwidth(pixels, quantile=0.1, n_samples=500, random_state=42)
+    meanshift = MeanShift(bandwidth=bandwidth, bin_seeding=True)
+    meanshift.fit(pixels)
+
+    labels = meanshift.labels_.reshape(h, w)
+    num_regions = int(labels.max() + 1)
+
+    region_features = []
+    for i in range(num_regions):
+        mask = labels == i
+
+        avg_color = image_rgb[mask].mean(axis=0)
+
+        y_coords, x_coords = np.where(mask)
+        cx = x_coords.mean() / w
+        cy = y_coords.mean() / h
+        position_weight = 3
+
+        region_features.append([
+            avg_color[0], avg_color[1], avg_color[2],
+            cx * position_weight, cy * position_weight
+        ])
+
+    region_features = np.array(region_features)
+
+    region_map = labels.astype(int)
+    num_regions_final = int(region_map.max() + 1)
+
+    return SegmentationResult(region_map, num_regions_final)
+ 
 def segment_image(image, k=3):
     """
     Segments image into k regions using K-means clustering.
@@ -51,7 +130,6 @@ def segment_image(image, k=3):
 
     return segmented_image, region_map, num_regions
 
-
 def sift_features(image):
     """
     Detects SIFT keypoints and descriptors.
@@ -72,7 +150,6 @@ def sift_features(image):
 
     return img_keypoints, keypoints, descriptors
 
-
 def harris_corners(image):
     """
     Detects corners using Harris Corner Detection.
@@ -90,49 +167,3 @@ def harris_corners(image):
     result[dst > 0.01 * dst.max()] = [0, 0, 255]
 
     return result
-
-
-def main():
-    img = cv2.imread("image.png")
-
-    if img is None:
-        print("Error: Could not load image.")
-        return
-
-    segmented_img, region_map, num_regions = segment_image(img, k=3)
-
-    sift_img, keypoints, descriptors = sift_features(img)
-
-    harris_img = harris_corners(img)
-
-    print(f"Number of regions: {num_regions}")
-    print(f"SIFT keypoints detected: {len(keypoints)}")
-
-    plt.figure(figsize=(12, 8))
-
-    plt.subplot(2, 2, 1)
-    plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    plt.title("Original Image")
-    plt.axis("off")
-
-    plt.subplot(2, 2, 2)
-    plt.imshow(cv2.cvtColor(segmented_img, cv2.COLOR_BGR2RGB))
-    plt.title(f"Segmented Image (k={num_regions})")
-    plt.axis("off")
-
-    plt.subplot(2, 2, 3)
-    plt.imshow(cv2.cvtColor(sift_img, cv2.COLOR_BGR2RGB))
-    plt.title("SIFT Keypoints")
-    plt.axis("off")
-
-    plt.subplot(2, 2, 4)
-    plt.imshow(cv2.cvtColor(harris_img, cv2.COLOR_BGR2RGB))
-    plt.title("Harris Corners")
-    plt.axis("off")
-
-    plt.tight_layout()
-    plt.show()
-
-
-if __name__ == "__main__":
-    main()
