@@ -167,3 +167,52 @@ def harris_corners(image):
     result[dst > 0.01 * dst.max()] = [0, 0, 255]
 
     return result
+
+
+
+def otsu_threshold(image):
+    """
+    Applies Otsu's thresholding.
+    Returns:
+        binary_image: thresholded image
+        region_map: 0/1 labels
+        num_regions: 2
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    _, binary = cv2.threshold(
+        gray,
+        0,
+        255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+
+    region_map = (binary > 0).astype(int)
+    num_regions = 2
+
+    return binary, region_map, num_regions
+
+
+def adaptive_threshold(image):
+    """
+    Applies adaptive thresholding.
+    Returns:
+        binary_image: thresholded image
+        region_map: 0/1 labels
+        num_regions: 2
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    binary = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        11,   
+        2     
+    )
+
+    region_map = (binary > 0).astype(int)
+    num_regions = 2
+
+    return binary, region_map, num_regions
