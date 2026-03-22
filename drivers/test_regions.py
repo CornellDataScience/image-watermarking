@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from core.types import SegmentationResult
-from regions.approach_regions import slic_superpixels, slic_plus_kmeans, meanshift, k_means, sift_features, harris_corners
+from regions.approach_regions import slic_superpixels, slic_plus_kmeans, meanshift, k_means, sift_features, harris_corners, otsu_threshold, adaptive_threshold, region_growing, watershed_segmentation
 import matplotlib.pyplot as plt
 from skimage.segmentation import mark_boundaries
 import cv2
@@ -84,9 +84,25 @@ def test_visualize(segment_func, img, name):
 def test_visualize_sift(img):
     print("Running SIFT visualization test...")
 
-    segmented_img, region_map, num_regions = k_means(img, k=3)
+    result = k_means(img, k=3)
+    region_map = result.region_map
+    num_regions = result.num_regions
     sift_img, keypoints, descriptors = sift_features(img)
     harris_img = harris_corners(img)
+
+    pixel_vals = img.reshape((-1, 3)).astype(np.float32)
+
+    _, labels, centers = cv2.kmeans(
+    pixel_vals,
+    num_regions,
+    None,
+    (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2),
+    10,
+    cv2.KMEANS_RANDOM_CENTERS
+    )
+
+    centers = np.uint8(centers)
+    segmented_img = centers[labels.flatten()].reshape(img.shape)
 
     print(f"Number of regions: {num_regions}")
     print(f"SIFT keypoints detected: {len(keypoints)}")
@@ -130,7 +146,11 @@ if __name__ == "__main__":
     for func, name in [
         (slic_superpixels, "SLIC Superpixels"),
         (slic_plus_kmeans, "SLIC + KMeans"),
-        (meanshift,        "Mean Shift")
+        (meanshift,        "Mean Shift"),
+        (otsu_threshold, "OTSU Threshold"),
+        (adaptive_threshold, "Adaptive Threshold"),
+        (watershed_segmentation, "Watershed Segmentation"),
+        (region_growing, "Region growing")
     ]:
         all_tests(func, img, name)
 
