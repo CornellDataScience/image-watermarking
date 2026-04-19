@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from core.types import SegmentationResult
-from regions.approach_regions import slic_superpixels, slic_plus_kmeans, meanshift, k_means, sift_features, harris_corners, otsu_threshold, adaptive_threshold, region_growing, watershed_segmentation
+from regions.approach_regions import slic_superpixels, slic_plus_kmeans, meanshift, k_means, sift_features, harris_corners, otsu_threshold, adaptive_threshold, region_growing, watershed_segmentation, felzenszwalb_segmentation
 import matplotlib.pyplot as plt
 from skimage.segmentation import mark_boundaries
 import cv2
@@ -150,7 +150,8 @@ if __name__ == "__main__":
         (otsu_threshold, "OTSU Threshold"),
         (adaptive_threshold, "Adaptive Threshold"),
         (watershed_segmentation, "Watershed Segmentation"),
-        (region_growing, "Region growing")
+        (region_growing, "Region growing"),
+        (felzenszwalb_segmentation, "Felzenszwalb (Graph based) segmentation")
     ]:
         all_tests(func, img, name)
 

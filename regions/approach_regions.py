@@ -95,7 +95,7 @@ def meanshift(image):
 
     return SegmentationResult(region_map, num_regions_final)
  
-def k_means(image, k=3):
+def k_means(image, k=5):
     pixel_vals = image.reshape((-1, 3))
     pixel_vals = np.float32(pixel_vals)
 
@@ -166,35 +166,17 @@ def adaptive_threshold(image):
 
     return SegmentationResult(region_map, num_regions)
 
-def watershed_segmentation(image):
+def watershed_segmentation(image, n_segments=200, compactness=0.001):
+    from skimage.segmentation import watershed
+    from skimage.filters import sobel
+
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) / 255.0
 
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    gradient = sobel(gray)
+    labels = watershed(gradient, markers=n_segments, compactness=compactness)
 
-    kernel = np.ones((3, 3), np.uint8)
-    opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
-
-    sure_bg = cv2.dilate(opening, kernel, iterations=3)
-
-    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(dist_transform, 0.5 * dist_transform.max(), 255, 0)
-
-    sure_fg = np.uint8(sure_fg)
-
-    unknown = cv2.subtract(sure_bg, sure_fg)
-
-    _, markers = cv2.connectedComponents(sure_fg)
-
-    markers = markers + 1
-    markers[unknown == 255] = 0
-
-    markers = cv2.watershed(image_rgb, markers)
-
-    region_map = markers.copy()
-    region_map[region_map == -1] = 0
-    region_map = region_map.astype(int)
-
+    region_map = labels.astype(int)
     num_regions = int(region_map.max() + 1)
 
     return SegmentationResult(region_map, num_regions)
@@ -232,6 +214,17 @@ def region_growing(image, threshold=50):
 
             current_label += 1
 
+    num_regions = int(region_map.max() + 1)
+
+    return SegmentationResult(region_map, num_regions)
+
+def felzenszwalb_segmentation(image, scale=500, sigma=0.8, min_size=100):
+    from skimage.segmentation import felzenszwalb
+
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    labels = felzenszwalb(image_rgb, scale=scale, sigma=sigma, min_size=min_size)
+
+    region_map = labels.astype(int)
     num_regions = int(region_map.max() + 1)
 
     return SegmentationResult(region_map, num_regions)
