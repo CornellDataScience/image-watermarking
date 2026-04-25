@@ -20,10 +20,10 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance
 
-# dwt_descriptor.py lives in the same directory; Python adds the script's
-# own directory to sys.path when run directly, so this import works without
-# any path manipulation.
-from dwt_descriptor import dwt_descriptor
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from descriptors.dwt_descriptor import dwt_descriptor
 
 
 # ---------------------------------------------------------------------------
