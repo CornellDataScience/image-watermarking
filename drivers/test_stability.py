@@ -74,7 +74,10 @@ def visualize_flip_rate_heatmap(stability_result):
     plt.xlabel("Region j")
     plt.ylabel("Region i")
     plt.tight_layout()
-    plt.show()
+    out = "stability_heatmap.png"
+    plt.savefig(out, dpi=120)
+    plt.close()
+    print(f"Saved {out}")
 
 
 def visualize_stable_pairs_on_image(image, segmentation, stable_pairs, name=""):
@@ -109,7 +112,10 @@ def visualize_stable_pairs_on_image(image, segmentation, stable_pairs, name=""):
     axes[1].axis("off")
 
     plt.tight_layout()
-    plt.show()
+    out = "stable_regions.png"
+    plt.savefig(out, dpi=120)
+    plt.close()
+    print(f"Saved {out}")
 
 
 if __name__ == "__main__":
