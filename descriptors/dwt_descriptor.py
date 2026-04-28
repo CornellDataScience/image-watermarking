@@ -193,5 +193,70 @@ def main() -> None:
     print(f"Saved {len(all_fingerprints)} fingerprints → {out_path.resolve()}")
 
 
+def compute_dwt_descriptor(image, seg, component=0) -> list[float]:
+    """
+    Region-level DWT descriptor compatible with the evaluation interface.
+
+    Parameters
+    ----------
+    image : np.ndarray  (H, W, 3)  uint8
+    seg   : SegmentationResult
+    component : int
+        Which DWT energy subband to use as the scalar per region.
+        0=E_LL, 1=E_LH, 2=E_HL, 3=E_HH. Default 0 (E_LL).
+
+    Returns
+    -------
+    list[float] of length seg.num_regions
+    """
+    descriptors = []
+
+    for k in range(seg.num_regions):
+        mask = seg.region_map == k
+
+        # Guard: watershed can produce label IDs with zero pixels assigned
+        # when transforms change the gradient landscape and labels become
+        # non-contiguous. rows/cols would be empty and .min() would crash.
+        if not mask.any():
+            descriptors.append(0.0)
+            continue
+
+        rows, cols = np.where(mask)
+        r0, r1 = int(rows.min()), int(rows.max()) + 1
+        c0, c1 = int(cols.min()), int(cols.max()) + 1
+
+        crop = image[r0:r1, c0:c1].astype(np.float64)
+        mask_crop = mask[r0:r1, c0:c1]
+
+        # Guard: pywt.dwt2 needs at least 2 pixels in each dimension.
+        if crop.shape[0] < 2 or crop.shape[1] < 2:
+            descriptors.append(0.0)
+            continue
+
+        # Fill non-region pixels with the region's per-channel mean so the
+        # mask boundary creates a smooth transition rather than a hard zero edge.
+        for ch in range(crop.shape[2]):
+            channel_mean = crop[:, :, ch][mask_crop].mean()
+            crop[:, :, ch][~mask_crop] = channel_mean
+
+        energy_vec = dwt_descriptor(crop)
+        descriptors.append(float(energy_vec[component]))
+
+    return descriptors
+
+
+def compute_dwt_ll(image, seg) -> list[float]:
+    return compute_dwt_descriptor(image, seg, component=0)
+
+def compute_dwt_lh(image, seg) -> list[float]:
+    return compute_dwt_descriptor(image, seg, component=1)
+
+def compute_dwt_hl(image, seg) -> list[float]:
+    return compute_dwt_descriptor(image, seg, component=2)
+
+def compute_dwt_hh(image, seg) -> list[float]:
+    return compute_dwt_descriptor(image, seg, component=3)
+
+
 if __name__ == "__main__":
     main()

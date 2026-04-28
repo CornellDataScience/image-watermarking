@@ -188,4 +188,60 @@ def run_stability_test(
     image_id: str = "",
     iou_threshold: float = 0.5,
 ) -> list[PairResult]:
-    raise NotImplementedError("TODO: implement run_stability_test — see algorithm comments above")
+    # Step 1 — Produce the after-image.
+    if after_image is not None and transform_fn is not None:
+        raise ValueError("Provide exactly one of after_image or transform_fn, not both.")
+    if after_image is None and transform_fn is None:
+        raise ValueError("Provide exactly one of after_image or transform_fn.")
+    if after_image is None:
+        after_image = transform_fn(before_image)
+
+    # Step 2 — Segment both images.
+    seg_before = segment_func(before_image)
+    seg_after = segment_func(after_image)
+
+    # Step 3 — Compute descriptors.
+    before_descs = descriptor_func(before_image, seg_before)
+    after_descs = descriptor_func(after_image, seg_after)
+
+    # Step 4 — Establish region correspondence.
+    if correspondence_map is None:
+        correspondence_map = match_regions(seg_before, seg_after, iou_threshold)
+
+    # Step 5 — Evaluate every pair (i, j) with i < j.
+    results = []
+    n = seg_before.num_regions
+    for i in range(n):
+        for j in range(i + 1, n):
+            i_prime = correspondence_map[i]
+            j_prime = correspondence_map[j]
+
+            before_margin = abs(before_descs[i] - before_descs[j])
+
+            if i_prime is None or j_prime is None:
+                results.append(PairResult(
+                    image_id=image_id,
+                    pair_id=(i, j),
+                    before_margin=before_margin,
+                    after_margin=None,
+                    status="segmentation_failure",
+                ))
+            else:
+                before_diff = before_descs[i] - before_descs[j]
+                after_diff = after_descs[i_prime] - after_descs[j_prime]
+
+                before_sign = 1 if before_diff > 0 else (-1 if before_diff < 0 else 0)
+                after_sign = 1 if after_diff > 0 else (-1 if after_diff < 0 else 0)
+
+                after_margin = abs(after_diff)
+                status = "descriptor_flip" if before_sign != after_sign else "stable"
+
+                results.append(PairResult(
+                    image_id=image_id,
+                    pair_id=(i, j),
+                    before_margin=before_margin,
+                    after_margin=after_margin,
+                    status=status,
+                ))
+
+    return results

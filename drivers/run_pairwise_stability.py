@@ -156,47 +156,196 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Callable
 
 from stability.pairwise_stability import run_stability_test
 from stability.evaluation_metrics import compute_metrics, compute_metrics_by_stratum, print_metrics_summary
 from stability.transformations import get_default_transformations
+from stability.fragfake_loader import iter_fragfake_pairs
 
 from regions.approach_regions import slic_superpixels, k_means, watershed_segmentation
-from descriptors.lbp_descriptor import compute_lbp_descriptor
-from descriptors.dwt_descriptor import compute_dwt_descriptor
+from descriptors.lbp_descriptor import compute_lbp_mean, compute_lbp_entropy, compute_lbp_nonuniform, compute_lbp_edge
+from descriptors.dwt_descriptor import compute_dwt_ll, compute_dwt_lh, compute_dwt_hl, compute_dwt_hh
 
 
 # --------------------------------------------------------------------------
 # CONSTANTS — edit these before running
 # --------------------------------------------------------------------------
 
-IMAGE_DIR        = "TODO: path to directory of test images"
-MIN_MARGIN       = 0.0      # raise after first run to filter near-zero pairs
-FLIP_RATE_TARGET = 0.10     # combos above this flip rate are ranked last
-MAX_IMAGES       = 5        # set low for smoke test, raise for real evaluation
+MODE             = 'A'              # 'A' = synthetic transforms, 'B' = FragFake
+IMAGE_DIR        = "data/"          # Mode A: directory containing test images
+FRAGFAKE_DIR     = "data/fragfake"  # Mode B: root of downloaded FragFake dataset
+MIN_MARGIN       = 0.0              # raise after first run to filter near-zero pairs
+FLIP_RATE_TARGET = 0.10             # combos above this flip rate are ranked last
+MAX_IMAGES       = 5                # Mode A: cap on images loaded from IMAGE_DIR
 
 
 # --------------------------------------------------------------------------
 # COMBO MATRIX — add / remove combos here
 # --------------------------------------------------------------------------
 # Format: (human-readable name, segment_func, descriptor_func)
-# segment_func  : callable(image) -> SegmentationResult
+# segment_func    : callable(image) -> SegmentationResult
 # descriptor_func : callable(image, SegmentationResult) -> list[float]
 
 COMBO_MATRIX = [
-    # TODO: uncomment / add combos as descriptor functions are implemented
-    # ("slic + lbp",       slic_superpixels,        compute_lbp_descriptor),
-    # ("slic + dwt",       slic_superpixels,        compute_dwt_descriptor),
-    # ("kmeans + lbp",     k_means,                 compute_lbp_descriptor),
-    # ("kmeans + dwt",     k_means,                 compute_dwt_descriptor),
-    # ("watershed + lbp",  watershed_segmentation,  compute_lbp_descriptor),
-    # ("watershed + dwt",  watershed_segmentation,  compute_dwt_descriptor),
+    ("slic + lbp_mean",        slic_superpixels,      compute_lbp_mean),
+    ("slic + lbp_entropy",     slic_superpixels,      compute_lbp_entropy),
+    ("slic + lbp_nonuniform",  slic_superpixels,      compute_lbp_nonuniform),
+    ("slic + lbp_edge",        slic_superpixels,      compute_lbp_edge),
+    ("slic + dwt_ll",          slic_superpixels,      compute_dwt_ll),
+    ("slic + dwt_lh",          slic_superpixels,      compute_dwt_lh),
+    ("slic + dwt_hl",          slic_superpixels,      compute_dwt_hl),
+    ("slic + dwt_hh",          slic_superpixels,      compute_dwt_hh),
+    ("kmeans + lbp_mean",      k_means,               compute_lbp_mean),
+    ("kmeans + lbp_entropy",   k_means,               compute_lbp_entropy),
+    ("kmeans + dwt_ll",        k_means,               compute_dwt_ll),
+    ("kmeans + dwt_hh",        k_means,               compute_dwt_hh),
+    ("watershed + lbp_mean",   watershed_segmentation, compute_lbp_mean),
+    ("watershed + lbp_entropy",watershed_segmentation, compute_lbp_entropy),
+    ("watershed + dwt_ll",     watershed_segmentation, compute_dwt_ll),
+    ("watershed + dwt_hh",     watershed_segmentation, compute_dwt_hh),
 ]
 
 
+# --------------------------------------------------------------------------
+# PAIR BUILDERS
+# --------------------------------------------------------------------------
+
+def build_synthetic_pairs(image_dir: str, max_images: int):
+    """
+    Mode A: load images from image_dir, generate one before/after pair per
+    image × transform. Returns (pairs, id_to_stratum).
+
+    pairs        : list of (before_img, after_img=None, transform_fn, image_id)
+    id_to_stratum: dict mapping image_id -> transform_name
+    """
+    image_dir = Path(image_dir)
+    image_paths = sorted(
+        p for p in image_dir.iterdir()
+        if p.suffix.lower() in {".jpg", ".jpeg", ".png"}
+    )[:max_images]
+
+    if not image_paths:
+        raise FileNotFoundError(f"No images found in {image_dir}")
+
+    transforms = get_default_transformations()
+    pairs = []
+    id_to_stratum = {}
+
+    for path in image_paths:
+        img = cv2.imread(str(path))
+        if img is None:
+            print(f"  WARN: failed to load {path}, skipping")
+            continue
+        stem = path.stem
+        for transform_name, transform_fn in transforms:
+            image_id = f"{stem}__{transform_name}"
+            pairs.append((img, None, transform_fn, image_id))
+            id_to_stratum[image_id] = transform_name
+
+    print(f"Mode A: {len(image_paths)} images × {len(transforms)} transforms = {len(pairs)} pairs")
+    return pairs, id_to_stratum
+
+
+def build_fragfake_pairs(fragfake_dir: str):
+    """
+    Mode B: load real before/after pairs from the FragFake dataset.
+    Returns (pairs, id_to_stratum).
+
+    pairs        : list of (before_img, after_img, transform_fn=None, image_id)
+    id_to_stratum: dict mapping image_id -> "difficulty__edit_type"
+    """
+    pairs = []
+    id_to_stratum = {}
+
+    for pair in iter_fragfake_pairs(fragfake_dir):
+        image_id = pair.image_id
+        stratum = f"{pair.difficulty}__{pair.edit_type}"
+        pairs.append((pair.before, pair.after, None, image_id))
+        id_to_stratum[image_id] = stratum
+
+    if not pairs:
+        raise FileNotFoundError(
+            f"No pairs found in {fragfake_dir}. "
+            "Run drivers/download_fragfake.py first."
+        )
+
+    print(f"Mode B: {len(pairs)} FragFake pairs loaded")
+    return pairs, id_to_stratum
+
+
+# --------------------------------------------------------------------------
+# MAIN
+# --------------------------------------------------------------------------
+
 def main():
-    raise NotImplementedError("TODO: implement main() — see algorithm comments above")
+    # Step 1 — Build pairs
+    if MODE == 'A':
+        pairs, id_to_stratum = build_synthetic_pairs(IMAGE_DIR, MAX_IMAGES)
+    else:
+        pairs, id_to_stratum = build_fragfake_pairs(FRAGFAKE_DIR)
+
+    if not COMBO_MATRIX:
+        raise ValueError("COMBO_MATRIX is empty — add at least one combo.")
+
+    # Step 2 — Evaluation loop: for each combo, run on every pair
+    combo_metrics = {}
+    for combo_name, seg_fn, desc_fn in COMBO_MATRIX:
+        print(f"\nEvaluating: {combo_name} ...")
+        all_pair_results = []
+
+        for before_img, after_img, transform_fn, image_id in pairs:
+            try:
+                results = run_stability_test(
+                    before_image    = before_img,
+                    segment_func    = seg_fn,
+                    descriptor_func = desc_fn,
+                    after_image     = after_img,
+                    transform_fn    = transform_fn,
+                    image_id        = image_id,
+                )
+                all_pair_results.extend(results)
+            except Exception as e:
+                print(f"  WARN: {combo_name} failed on {image_id}: {e}")
+                continue
+
+        if not all_pair_results:
+            print(f"  WARN: no results for {combo_name}, skipping")
+            continue
+
+        # Step 3 — Aggregate metrics
+        metrics = compute_metrics(all_pair_results, min_margin_threshold=MIN_MARGIN)
+        stratum_metrics = compute_metrics_by_stratum(
+            all_pair_results,
+            stratum_key_fn=lambda pr: id_to_stratum[pr.image_id],
+            min_margin_threshold=MIN_MARGIN,
+        )
+        combo_metrics[combo_name] = (metrics, stratum_metrics)
+
+    # Step 4 — Rank: flip_rate < target first, then by usable_pair_yield descending
+    ranked = sorted(
+        combo_metrics.items(),
+        key=lambda x: (x[1][0].mean_flip_rate >= FLIP_RATE_TARGET, -x[1][0].usable_pair_yield),
+    )
+
+    # Step 5 — Print ranked report
+    print("\n" + "=" * 70)
+    print(f"RANKED RESULTS  (flip rate target: {FLIP_RATE_TARGET:.0%})")
+    print("=" * 70)
+
+    for rank, (combo_name, (metrics, stratum_metrics)) in enumerate(ranked, 1):
+        passed = metrics.mean_flip_rate < FLIP_RATE_TARGET
+        status = "PASS" if passed else "FAIL"
+        print(f"\n#{rank} [{status}]  {combo_name}")
+        print_metrics_summary(metrics, combo_name=combo_name)
+
+        print(f"  Per-stratum breakdown:")
+        print(f"  {'Stratum':<30}  {'Flip Rate':>10}  {'Yield':>8}  {'Seg Surv':>10}")
+        print(f"  {'-'*30}  {'-'*10}  {'-'*8}  {'-'*10}")
+        for stratum, sm in sorted(stratum_metrics.items()):
+            print(
+                f"  {stratum:<30}  {sm.mean_flip_rate:>10.2%}  "
+                f"{sm.usable_pair_yield:>8.1f}  {sm.segmentation_survival_rate:>10.2%}"
+            )
 
 
 if __name__ == "__main__":

@@ -142,5 +142,84 @@ def main() -> None:
         print(f"  {name:<28}  shape={desc.shape}  min={desc.min():.4f}  max={desc.max():.4f}")
 
 
+def compute_lbp_descriptor(image, seg, stat='mean') -> list[float]:
+    """
+    Region-level LBP descriptor compatible with the evaluation interface.
+
+    Computes the full-image LBP map once, then summarises each region's
+    LBP codes into a single scalar using the chosen statistic.
+
+    Parameters
+    ----------
+    image : np.ndarray  (H, W, 3) or (H, W)  uint8
+    seg   : SegmentationResult
+    stat  : str
+        Summary statistic to use per region:
+        'mean'       — mean LBP code value
+        'entropy'    — Shannon entropy of the region's LBP histogram
+        'nonuniform' — fraction of pixels with a non-uniform LBP code (code == P+1)
+        'edge'       — fraction of pixels with an edge-like code (1 <= code <= P-1)
+
+    Returns
+    -------
+    list[float] of length seg.num_regions
+    """
+    P = 8
+    num_bins = P + 2  # codes 0..P plus non-uniform catch-all at P+1
+
+    if image.ndim == 3:
+        gray = color.rgb2gray(image.astype(np.float64))
+    else:
+        gray = image.astype(np.float64)
+        if gray.max() > 1.0:
+            gray /= 255.0
+
+    lbp_image = local_binary_pattern((gray * 255).astype(np.uint8), P, R=1.0, method='uniform')
+
+    descriptors = []
+    for k in range(seg.num_regions):
+        mask = seg.region_map == k
+        region_lbp = lbp_image[mask]
+
+        # Guard: watershed can produce label IDs with zero pixels assigned.
+        if len(region_lbp) == 0:
+            descriptors.append(0.0)
+            continue
+
+        if stat == 'mean':
+            scalar = float(region_lbp.mean())
+
+        elif stat == 'entropy':
+            hist, _ = np.histogram(region_lbp, bins=num_bins, range=(0, num_bins))
+            hist = hist / hist.sum()
+            scalar = float(-np.sum(hist * np.log(hist + 1e-10)))
+
+        elif stat == 'nonuniform':
+            scalar = float((region_lbp == P + 1).sum() / len(region_lbp))
+
+        elif stat == 'edge':
+            scalar = float(((region_lbp >= 1) & (region_lbp <= P - 1)).sum() / len(region_lbp))
+
+        else:
+            raise ValueError(f"Unknown stat '{stat}'. Choose from: mean, entropy, nonuniform, edge.")
+
+        descriptors.append(scalar)
+
+    return descriptors
+
+
+def compute_lbp_mean(image, seg) -> list[float]:
+    return compute_lbp_descriptor(image, seg, stat='mean')
+
+def compute_lbp_entropy(image, seg) -> list[float]:
+    return compute_lbp_descriptor(image, seg, stat='entropy')
+
+def compute_lbp_nonuniform(image, seg) -> list[float]:
+    return compute_lbp_descriptor(image, seg, stat='nonuniform')
+
+def compute_lbp_edge(image, seg) -> list[float]:
+    return compute_lbp_descriptor(image, seg, stat='edge')
+
+
 if __name__ == "__main__":
     main()
