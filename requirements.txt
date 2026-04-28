@@ -1,0 +1,12 @@
+huggingface_hub
+opencv-python
+numpy
+pandas
+pyarrow
+tqdm
+pytest
+scipy
+scikit-image
+scikit-learn
+matplotlib
+Pillow
