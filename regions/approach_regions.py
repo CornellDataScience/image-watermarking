@@ -176,8 +176,15 @@ def watershed_segmentation(image, n_segments=200, compactness=0.001):
     gradient = sobel(gray)
     labels = watershed(gradient, markers=n_segments, compactness=compactness)
 
-    region_map = labels.astype(int)
-    num_regions = int(region_map.max() + 1)
+    # Remap labels to contiguous 0..N-1. watershed labels are not guaranteed
+    # to be contiguous — gaps cause num_regions to overcount, producing label
+    # IDs that match zero pixels and crashing descriptor bounding-box lookups.
+    unique_labels = np.unique(labels)
+    remap = np.zeros(int(labels.max()) + 1, dtype=int)
+    for new_id, old_id in enumerate(unique_labels):
+        remap[old_id] = new_id
+    region_map = remap[labels.astype(int)]
+    num_regions = len(unique_labels)
 
     return SegmentationResult(region_map, num_regions)
 
