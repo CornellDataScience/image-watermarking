@@ -171,12 +171,12 @@ from descriptors.dwt_descriptor import compute_dwt_ll, compute_dwt_lh, compute_d
 # CONSTANTS — edit these before running
 # --------------------------------------------------------------------------
 
-MODE             = 'A'              # 'A' = synthetic transforms, 'B' = FragFake
+MODE             = 'B'              # 'A' = synthetic transforms, 'B' = FragFake
 IMAGE_DIR        = "data/"          # Mode A: directory containing test images
 FRAGFAKE_DIR     = "data/fragfake"  # Mode B: root of downloaded FragFake dataset
-MIN_MARGIN       = 0.0              # raise after first run to filter near-zero pairs
+MIN_MARGIN       = 0.05              # raise after first run to filter near-zero pairs
 FLIP_RATE_TARGET = 0.10             # combos above this flip rate are ranked last
-MAX_IMAGES       = 5                # Mode A: cap on images loaded from IMAGE_DIR
+MAX_IMAGES       = 10              # Mode A: cap on images loaded from IMAGE_DIR
 
 
 # --------------------------------------------------------------------------
@@ -187,20 +187,20 @@ MAX_IMAGES       = 5                # Mode A: cap on images loaded from IMAGE_DI
 # descriptor_func : callable(image, SegmentationResult) -> list[float]
 
 COMBO_MATRIX = [
-    ("slic + lbp_mean",        slic_superpixels,      compute_lbp_mean),
-    ("slic + lbp_entropy",     slic_superpixels,      compute_lbp_entropy),
-    ("slic + lbp_nonuniform",  slic_superpixels,      compute_lbp_nonuniform),
-    ("slic + lbp_edge",        slic_superpixels,      compute_lbp_edge),
+    # ("slic + lbp_mean",        slic_superpixels,      compute_lbp_mean),
+    # ("slic + lbp_entropy",     slic_superpixels,      compute_lbp_entropy),
+    # ("slic + lbp_nonuniform",  slic_superpixels,      compute_lbp_nonuniform),
+    # ("slic + lbp_edge",        slic_superpixels,      compute_lbp_edge),
     ("slic + dwt_ll",          slic_superpixels,      compute_dwt_ll),
     ("slic + dwt_lh",          slic_superpixels,      compute_dwt_lh),
     ("slic + dwt_hl",          slic_superpixels,      compute_dwt_hl),
     ("slic + dwt_hh",          slic_superpixels,      compute_dwt_hh),
-    ("kmeans + lbp_mean",      k_means,               compute_lbp_mean),
-    ("kmeans + lbp_entropy",   k_means,               compute_lbp_entropy),
+    # ("kmeans + lbp_mean",      k_means,               compute_lbp_mean),
+    # ("kmeans + lbp_entropy",   k_means,               compute_lbp_entropy),
     ("kmeans + dwt_ll",        k_means,               compute_dwt_ll),
     ("kmeans + dwt_hh",        k_means,               compute_dwt_hh),
-    ("watershed + lbp_mean",   watershed_segmentation, compute_lbp_mean),
-    ("watershed + lbp_entropy",watershed_segmentation, compute_lbp_entropy),
+    # ("watershed + lbp_mean",   watershed_segmentation, compute_lbp_mean),
+    # ("watershed + lbp_entropy",watershed_segmentation, compute_lbp_entropy),
     ("watershed + dwt_ll",     watershed_segmentation, compute_dwt_ll),
     ("watershed + dwt_hh",     watershed_segmentation, compute_dwt_hh),
 ]

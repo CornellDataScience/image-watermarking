@@ -170,6 +170,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 #   produces raw PairResult objects for one image pair. The driver accumulates
 #   these across many pairs and calls compute_metrics once per combo.
 
+import cv2
 import numpy as np
 from typing import Optional, Callable
 
@@ -195,6 +196,10 @@ def run_stability_test(
         raise ValueError("Provide exactly one of after_image or transform_fn.")
     if after_image is None:
         after_image = transform_fn(before_image)
+
+    if after_image.shape[:2] != before_image.shape[:2]:
+        h, w = before_image.shape[:2]
+        after_image = cv2.resize(after_image, (w, h), interpolation=cv2.INTER_LINEAR)
 
     # Step 2 — Segment both images.
     seg_before = segment_func(before_image)
