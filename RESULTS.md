@@ -50,7 +50,7 @@ With only 5 regions, k-means produces at most 10 region pairs per image — a bi
 Watershed passes the flip rate target but only 60–70% of region pairs survive transforms and AI edits (vs. 71–88% for SLIC). Losing 30–40% of your bit budget to failed region matching makes it unreliable for real-world use.
 
 **5. Pairwise orderings are equally stable under real AI edits as under pixel-level noise.**
-This is the most significant finding: Mode B flip rates are nearly identical to Mode A flip rates for SLIC + DWT. Real AI editing (adding or replacing objects) does not destabilize the pairwise ordering structure any more than JPEG compression does. The watermark is robust to AI manipulation.
+This is the most significant finding: Mode B flip rates are nearly identical to Mode A flip rates for SLIC + DWT. Real AI editing (adding or replacing objects) does not destabilize the pairwise ordering structure any more than JPEG compression does, for easy level edits. The watermark is at least somewhat robust to AI manipulation.
 
 **6. `slic + dwt_hh` is the most consistent combo across all conditions.**
 1.88% flip rate in Mode A, 1.78% in Mode B — essentially unchanged. The HH subband captures diagonal high-frequency energy, which is highly stable across both pixel noise and semantic edits.
