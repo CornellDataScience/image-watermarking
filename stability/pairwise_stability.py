@@ -188,6 +188,8 @@ def run_stability_test(
     correspondence_map: Optional[dict] = None,
     image_id: str = "",
     iou_threshold: float = 0.5,
+    seg_before: Optional[SegmentationResult] = None,
+    seg_after: Optional[SegmentationResult] = None,
 ) -> list[PairResult]:
     # Step 1 — Produce the after-image.
     if after_image is not None and transform_fn is not None:
@@ -202,8 +204,10 @@ def run_stability_test(
         after_image = cv2.resize(after_image, (w, h), interpolation=cv2.INTER_LINEAR)
 
     # Step 2 — Segment both images.
-    seg_before = segment_func(before_image)
-    seg_after = segment_func(after_image)
+    if seg_before is None:
+        seg_before = segment_func(before_image)
+    if seg_after is None:
+        seg_after = segment_func(after_image)
 
     # Step 3 — Compute descriptors.
     before_descs = descriptor_func(before_image, seg_before)

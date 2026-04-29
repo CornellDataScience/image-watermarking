@@ -155,12 +155,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import cv2
 import numpy as np
+from collections import defaultdict
 from pathlib import Path
 
 from stability.pairwise_stability import run_stability_test
 from stability.evaluation_metrics import compute_metrics, compute_metrics_by_stratum, print_metrics_summary
 from stability.transformations import get_default_transformations
 from stability.fragfake_loader import iter_fragfake_pairs
+from stability.region_matching import match_regions
 
 from regions.approach_regions import slic_superpixels, k_means, watershed_segmentation
 from descriptors.lbp_descriptor import compute_lbp_mean, compute_lbp_entropy, compute_lbp_nonuniform, compute_lbp_edge
@@ -177,6 +179,7 @@ FRAGFAKE_DIR     = "data/fragfake"  # Mode B: root of downloaded FragFake datase
 MIN_MARGIN       = 0.05              # raise after first run to filter near-zero pairs
 FLIP_RATE_TARGET = 0.10             # combos above this flip rate are ranked last
 MAX_IMAGES       = 10              # Mode A: cap on images loaded from IMAGE_DIR
+IOU_THRESHOLD    = 0.5              # region match quality cutoff (COCO standard)
 
 
 # --------------------------------------------------------------------------
@@ -259,7 +262,7 @@ def build_fragfake_pairs(fragfake_dir: str):
 
     for pair in iter_fragfake_pairs(fragfake_dir):
         image_id = pair.image_id
-        stratum = f"{pair.difficulty}__{pair.edit_type}"
+        stratum = f"{pair.editor}__{pair.difficulty}__{pair.edit_type}"
         pairs.append((pair.before, pair.after, None, image_id))
         id_to_stratum[image_id] = stratum
 
@@ -287,39 +290,72 @@ def main():
     if not COMBO_MATRIX:
         raise ValueError("COMBO_MATRIX is empty — add at least one combo.")
 
-    # Step 2 — Evaluation loop: for each combo, run on every pair
-    combo_metrics = {}
-    for combo_name, seg_fn, desc_fn in COMBO_MATRIX:
-        print(f"\nEvaluating: {combo_name} ...")
-        all_pair_results = []
+    # Group combos by segment_func so segmentation and IoU are computed once
+    # per (image pair, segment_func) rather than once per (image pair, combo).
+    seg_groups: dict[int, list] = defaultdict(list)
+    for entry in COMBO_MATRIX:
+        seg_groups[id(entry[1])].append(entry)
 
-        for before_img, after_img, transform_fn, image_id in pairs:
-            try:
-                results = run_stability_test(
-                    before_image    = before_img,
-                    segment_func    = seg_fn,
-                    descriptor_func = desc_fn,
-                    after_image     = after_img,
-                    transform_fn    = transform_fn,
-                    image_id        = image_id,
-                )
-                all_pair_results.extend(results)
-            except Exception as e:
-                print(f"  WARN: {combo_name} failed on {image_id}: {e}")
-                continue
+    # Step 2 — Evaluation loop: outer = image pairs, inner = seg groups → combos
+    all_results: dict[str, list] = {name: [] for name, _, _ in COMBO_MATRIX}
 
-        if not all_pair_results:
-            print(f"  WARN: no results for {combo_name}, skipping")
+    print(f"\nEvaluating {len(COMBO_MATRIX)} combos across {len(pairs)} pairs ...")
+    for pair_idx, (before_img, after_img_raw, transform_fn_raw, image_id) in enumerate(pairs, 1):
+        print(f"  pair {pair_idx}/{len(pairs)}: {image_id}", end="\r")
+        try:
+            actual_after = (
+                after_img_raw if after_img_raw is not None
+                else transform_fn_raw(before_img)
+            )
+            if actual_after.shape[:2] != before_img.shape[:2]:
+                h, w = before_img.shape[:2]
+                actual_after = cv2.resize(actual_after, (w, h), interpolation=cv2.INTER_LINEAR)
+        except Exception as e:
+            print(f"\n  WARN: failed to produce after-image for {image_id}: {e}")
             continue
 
-        # Step 3 — Aggregate metrics
-        metrics = compute_metrics(all_pair_results, min_margin_threshold=MIN_MARGIN)
+        for group in seg_groups.values():
+            _, seg_fn, _ = group[0]
+            try:
+                seg_b = seg_fn(before_img)
+                seg_a = seg_fn(actual_after)
+                corr  = match_regions(seg_b, seg_a, iou_threshold=IOU_THRESHOLD)
+            except Exception as e:
+                for name, _, _ in group:
+                    print(f"\n  WARN: segmentation failed for {name} on {image_id}: {e}")
+                continue
+            for name, _, desc_fn in group:
+                try:
+                    results = run_stability_test(
+                        before_image       = before_img,
+                        segment_func       = seg_fn,
+                        descriptor_func    = desc_fn,
+                        after_image        = actual_after,
+                        correspondence_map = corr,
+                        image_id           = image_id,
+                        seg_before         = seg_b,
+                        seg_after          = seg_a,
+                    )
+                    all_results[name].extend(results)
+                except Exception as e:
+                    print(f"\n  WARN: {name} failed on {image_id}: {e}")
+
+    print()
+
+    # Step 3 — Aggregate metrics per combo
+    combo_metrics = {}
+    for name, _, _ in COMBO_MATRIX:
+        pair_results = all_results[name]
+        if not pair_results:
+            print(f"  WARN: no results for {name}, skipping")
+            continue
+        metrics = compute_metrics(pair_results, min_margin_threshold=MIN_MARGIN)
         stratum_metrics = compute_metrics_by_stratum(
-            all_pair_results,
+            pair_results,
             stratum_key_fn=lambda pr: id_to_stratum[pr.image_id],
             min_margin_threshold=MIN_MARGIN,
         )
-        combo_metrics[combo_name] = (metrics, stratum_metrics)
+        combo_metrics[name] = (metrics, stratum_metrics)
 
     # Step 4 — Rank: flip_rate < target first, then by usable_pair_yield descending
     ranked = sorted(

@@ -3,3 +3,6 @@ data/
 memory/
 logs/
 checkpoints/
+__pycache__/
+*.pyc
+*.pyo
