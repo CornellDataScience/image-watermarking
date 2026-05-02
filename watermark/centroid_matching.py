@@ -7,138 +7,89 @@
 # This is the DECODER-SIDE replacement for the IoU + Hungarian matching used
 # in stability/region_matching.py during evaluation.
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# WHY CENTROID MATCHING INSTEAD OF IoU
-# ─────────────────────────────────────────────────────────────────────────────
+# At EVALUATION time (region_matching.py):
+#   - Both before and after segmentation maps are available in full.
+#   - IoU can be computed for every (before_region, after_region) pair.
 #
-#   At EVALUATION time (region_matching.py):
-#     - Both before and after segmentation maps are available in full.
-#     - IoU can be computed for every (before_region, after_region) pair.
-#     - Hungarian assignment gives the globally optimal 1-to-1 matching.
+# At DECODE time (here):
+#   - The original image is NOT available.
+#   - The sidecar only stores centroids (cx, cy) for referenced before-image regions.
+#   - We find the nearest after-image centroid for each sidecar centroid.
+#   - If drift > centroid_threshold pixels → None (erasure), handled by RS.
 #
-#   At DECODE time (here):
-#     - The original image is NOT available.
-#     - The sidecar only stores centroids (cx, cy) for ~300 before-image regions.
-#     - The after-image segmentation is computed fresh from SLIC.
-#     - We have NO pixel-level overlap information.
-#
-#   Solution: nearest-centroid lookup.
-#     For each before-image region r with sidecar centroid C[r]:
-#       find the after-image region s whose centroid D[s] is closest to C[r].
-#       match[r] = s  if distance(C[r], D[s]) ≤ centroid_threshold
-#       match[r] = None  if distance > centroid_threshold  → treat as erasure
-#
-#   Why this works:
-#     SLIC centroids are spatially stable.  Even when AI editing changes
-#     region boundaries or texture, the center of mass of a region moves
-#     only a few pixels for background/unedited areas.  Empirically,
-#     segmentation survival is 43–88% across all strata (RESULTS_EXTENDED.md),
-#     which means the centroid of a surviving region is close to where it was.
-#     Regions that DO move a lot are destroyed by the edit — but those register
-#     as large centroid drift → distance > threshold → erasure, which RS handles.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# PARAMETERS
-# ─────────────────────────────────────────────────────────────────────────────
-#
-#   centroid_threshold : float = 40.0
-#       Maximum Euclidean distance (in pixels) between before-centroid and
-#       best-match after-centroid before the match is rejected as an erasure.
-#       Design rationale:
-#         - SLIC n=200 on a typical 640×480 image → average region ≈ 32×32 px
-#         - 40 px ≈ 1.25 region diameters
-#         - Large enough to tolerate minor SLIC boundary drift
-#         - Small enough to reject wrong-region matches in dense areas
-#       This should be tunable via Sidecar.metadata["centroid_threshold"].
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# DATA FLOW
-# ─────────────────────────────────────────────────────────────────────────────
-#
-#   sidecar.centroids : dict[int, (float, float)]
-#       Before-image region centroids.  Keys are before-image region IDs.
-#
-#   after_centroids : dict[int, (float, float)]
-#       After-image region centroids.  Keys are after-image region IDs (0..199).
-#       Computed by compute_region_centroids(seg_after) (defined below).
-#
-#   match : dict[int, int | None]
-#       Maps each before-image region ID to either:
-#         - an after-image region ID (successful match), or
-#         - None (centroid drift exceeded threshold → erasure)
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+# IMPORTANT: 1-to-1 matching is NOT enforced.
+#   Multiple before-regions can match to the same after-region near edit boundaries.
+#   match[r1] == match[r2] means the pair casts a wrong vote (not an erasure).
+#   K=7 majority voting absorbs a small number of such collisions.
+
+import numpy as np
 
 CENTROID_THRESHOLD_DEFAULT = 40.0   # pixels
 
 
-def compute_region_centroids(
-    seg,          # SegmentationResult — output of slic_superpixels on any image
-                  #   seg.region_map: (H, W) int array
-                  #   seg.num_regions: int
-) -> dict:        # dict[int, tuple[float, float]]
-                  #   region_id → (mean_x, mean_y) in pixel coordinates
-    # For each region k in range(seg.num_regions):
-    #   Find all pixel positions where seg.region_map == k.
-    #   ys, xs = np.where(seg.region_map == k)
-    #   centroid = (float(xs.mean()), float(ys.mean()))
-    #   centroids[k] = centroid
-    #
-    # This is identical to what the encoder computes in Phase 1 Step 2.
-    # At encode time: called on the before-image → stored in sidecar.
-    # At decode time: called on the after-image → used for matching.
-    #
-    # NOTE: x = column index, y = row index.  Be consistent with how the
-    # encoder computed before-image centroids so that the Euclidean distance
-    # comparison is meaningful.  If encoder uses (col, row), decoder must too.
-    pass
+def compute_region_centroids(seg) -> dict:
+    """
+    Compute the (x, y) centroid of every region in a segmentation result.
+
+    Parameters
+    ----------
+    seg : SegmentationResult
+        .region_map  : (H, W) int array, region labels 0..num_regions-1
+        .num_regions : int
+
+    Returns
+    -------
+    dict[int, tuple[float, float]]
+        region_id → (mean_col, mean_row) in pixel coordinates.
+        x = column index (horizontal), y = row index (vertical).
+    """
+    centroids = {}
+    for k in range(seg.num_regions):
+        ys, xs = np.where(seg.region_map == k)
+        if len(xs) == 0:
+            # Empty region (can occur with watershed on transformed images).
+            centroids[k] = (0.0, 0.0)
+        else:
+            centroids[k] = (float(xs.mean()), float(ys.mean()))
+    return centroids
 
 
 def match_regions_by_centroid(
-    sidecar_centroids,   # dict[int, tuple[float, float]]
-                         #   before-image region ID → (cx, cy)
-                         #   loaded from the sidecar
-    after_centroids,     # dict[int, tuple[float, float]]
-                         #   after-image region ID → (cx, cy)
-                         #   computed by compute_region_centroids(seg_after)
-    centroid_threshold=CENTROID_THRESHOLD_DEFAULT,  # float, pixels
-) -> dict:               # dict[int, int | None]
-                         #   before-image region ID → after-image region ID, or None
-    # Algorithm:
-    #
-    # Step 1: Build a lookup structure from after_centroids for fast nearest-neighbor.
-    #   Option A (simple, fine for n=200):
-    #     For each before-region r, iterate all after-regions s, compute distance.
-    #     O(|sidecar_centroids| × |after_centroids|) = O(300 × 200) = 60,000 ops.
-    #     Totally acceptable for n=200.
-    #   Option B (faster, only if n grows large):
-    #     scipy.spatial.cKDTree(list(after_centroids.values()))
-    #     Then query for each sidecar centroid.
-    #   Use Option A for now; comment where Option B would be inserted.
-    #
-    # Step 2: For each before-image region r in sidecar_centroids:
-    #   cx_r, cy_r = sidecar_centroids[r]
-    #   Find s* = argmin_s sqrt((cx_r - cx_s)² + (cy_r - cy_s)²) over all s in after_centroids.
-    #   min_dist = that minimum distance.
-    #
-    # Step 3: Apply threshold.
-    #   if min_dist <= centroid_threshold:
-    #       match[r] = s*
-    #   else:
-    #       match[r] = None   # erasure: region moved too far or was destroyed
-    #
-    # Step 4: Return match dict.
-    #
-    # IMPORTANT: do NOT enforce 1-to-1 matching here.
-    #   Multiple before-regions can match to the same after-region.
-    #   This can happen near edit boundaries where SLIC redraws region borders.
-    #   It is NOT a correctness problem because:
-    #     - Each (r1, r2) pair in a bit position compares e[match[r1]] vs e[match[r2]].
-    #     - If match[r1] == match[r2], the comparison gives a tie (e==e), which will
-    #       vote incorrectly.  This is an error, not an erasure.
-    #     - K=7 majority voting absorbs a small number of such wrong votes.
-    #   A future optimization could detect and suppress duplicate-match pairs,
-    #   converting them to erasures instead of wrong votes.  Not needed for v1.
-    pass
+    sidecar_centroids,          # dict[int, tuple[float, float]] — before-image centroids from sidecar
+    after_centroids,            # dict[int, tuple[float, float]] — after-image centroids (fresh from SLIC)
+    centroid_threshold=CENTROID_THRESHOLD_DEFAULT,
+) -> dict:
+    """
+    For each before-image region in the sidecar, find the nearest after-image
+    region by Euclidean centroid distance.
+
+    Parameters
+    ----------
+    sidecar_centroids : dict[int, (float, float)]
+        Before-image region ID → (cx, cy).  Loaded from the sidecar.
+    after_centroids : dict[int, (float, float)]
+        After-image region ID → (cx, cy).  Computed by compute_region_centroids.
+    centroid_threshold : float
+        Max drift in pixels before treating the region as an erasure (None).
+
+    Returns
+    -------
+    dict[int, int | None]
+        before-region ID → after-region ID, or None if drift > threshold.
+    """
+    if not after_centroids:
+        return {r: None for r in sidecar_centroids}
+
+    # Build vectorized arrays from after_centroids for batch distance computation.
+    # Option B (cKDTree) would slot in here for large n; O(300×200) is fine for n=200.
+    after_ids = list(after_centroids.keys())
+    after_xy = np.array([after_centroids[s] for s in after_ids], dtype=np.float64)  # (n_after, 2)
+
+    match = {}
+    for r, (cx_r, cy_r) in sidecar_centroids.items():
+        dists = np.sqrt((after_xy[:, 0] - cx_r) ** 2 + (after_xy[:, 1] - cy_r) ** 2)
+        best_idx = int(np.argmin(dists))
+        min_dist = float(dists[best_idx])
+        match[r] = after_ids[best_idx] if min_dist <= centroid_threshold else None
+
+    return match

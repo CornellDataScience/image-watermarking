@@ -248,6 +248,52 @@ def compute_dwt_descriptor(image, seg, component=0) -> list[float]:
 def compute_dwt_ll(image, seg) -> list[float]:
     return compute_dwt_descriptor(image, seg, component=0)
 
+
+def compute_raw_dwt_ll(image, seg) -> list[float]:
+    """
+    Raw DWT-LL energy per pixel for each region.
+
+    Returns sum(cA²) / num_region_pixels instead of the energy fraction
+    used by compute_dwt_ll.  The per-pixel normalization removes the effect
+    of region size while preserving the large brightness-driven variance
+    needed for the watermark pair pool (range ~10⁵ vs ~0.096 for the fraction).
+
+    This matches the design doc: d[k] = E_LL = sum(cA²), area-normalized so
+    that ordering reflects image content rather than superpixel size.
+    """
+    import cv2 as _cv2
+    image_rgb = _cv2.cvtColor(image, _cv2.COLOR_BGR2RGB) if image.shape[2] == 3 else image
+    descriptors = []
+
+    for k in range(seg.num_regions):
+        mask = seg.region_map == k
+        if not mask.any():
+            descriptors.append(0.0)
+            continue
+
+        rows, cols = np.where(mask)
+        r0, r1 = int(rows.min()), int(rows.max()) + 1
+        c0, c1 = int(cols.min()), int(cols.max()) + 1
+
+        crop = image_rgb[r0:r1, c0:c1].astype(np.float64)
+        mask_crop = mask[r0:r1, c0:c1]
+
+        if crop.shape[0] < 2 or crop.shape[1] < 2:
+            descriptors.append(0.0)
+            continue
+
+        for ch in range(crop.shape[2]):
+            channel_mean = crop[:, :, ch][mask_crop].mean()
+            crop[:, :, ch][~mask_crop] = channel_mean
+
+        from skimage import color as _color
+        gray = _color.rgb2gray(crop)
+        cA, _ = pywt.dwt2(gray, 'haar')
+        n_pixels = int(mask_crop.sum())
+        descriptors.append(float(np.sum(cA ** 2)) / n_pixels)
+
+    return descriptors
+
 def compute_dwt_lh(image, seg) -> list[float]:
     return compute_dwt_descriptor(image, seg, component=1)
 
