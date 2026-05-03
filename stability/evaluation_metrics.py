@@ -9,6 +9,7 @@ class PairResult:
     before_margin: float
     after_margin: Optional[float]
     status: str
+    embedding_cosine_similarity: Optional[float] = None
     
     @property
     def segmentation_survived(self) -> bool:

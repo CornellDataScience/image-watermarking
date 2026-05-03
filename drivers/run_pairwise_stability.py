@@ -167,6 +167,7 @@ from stability.region_matching import match_regions
 from regions.approach_regions import slic_superpixels, k_means, watershed_segmentation
 from descriptors.lbp_descriptor import compute_lbp_mean, compute_lbp_entropy, compute_lbp_nonuniform, compute_lbp_edge
 from descriptors.dwt_descriptor import compute_dwt_ll, compute_dwt_lh, compute_dwt_hl, compute_dwt_hh
+from dinov2_region_descriptor import DinoV2WholeImageRegionDescriptor
 
 
 # --------------------------------------------------------------------------
@@ -180,6 +181,17 @@ MIN_MARGIN       = 0.05              # raise after first run to filter near-zero
 FLIP_RATE_TARGET = 0.10             # combos above this flip rate are ranked last
 MAX_IMAGES       = 10              # Mode A: cap on images loaded from IMAGE_DIR
 IOU_THRESHOLD    = 0.5              # region match quality cutoff (COCO standard)
+EMBEDDING_SIMILARITY_THRESHOLD = 0.0  # minimum cosine alignment for embedding pair stability
+PRINT_EMBEDDING_PAIR_COSINES = True
+
+DINOV2_MODEL_NAME             = "facebook/dinov2-base"
+DINOV2_MODEL_REVISION         = None
+DINOV2_DEVICE                 = None  # None = auto-detect CUDA/MPS, otherwise "cpu", "mps", or "cuda"
+DINOV2_INPUT_SIZE             = 224
+DINOV2_POOLING_MODE           = "area_weighted_mean"
+DINOV2_PATCH_ASSIGNMENT_MODE  = "soft_area_weights"
+DINOV2_LOCAL_FILES_ONLY       = False
+DINOV2_USE_FP16               = False
 
 
 # --------------------------------------------------------------------------
@@ -187,7 +199,44 @@ IOU_THRESHOLD    = 0.5              # region match quality cutoff (COCO standard
 # --------------------------------------------------------------------------
 # Format: (human-readable name, segment_func, descriptor_func)
 # segment_func    : callable(image) -> SegmentationResult
-# descriptor_func : callable(image, SegmentationResult) -> list[float]
+# descriptor_func : callable(image, SegmentationResult) -> scalar descriptors
+#                   or embedding descriptors keyed/indexed by region
+
+
+def make_dinov2_embedding_descriptor():
+    """
+    Return a stability-compatible DINOv2 embedding descriptor.
+
+    OpenCV loads BGR images in this driver; DinoV2WholeImageRegionDescriptor
+    expects RGB, so the wrapper converts channel order before running the
+    whole-image patch-pooling descriptor.
+    """
+    descriptor = DinoV2WholeImageRegionDescriptor(
+        model_name=DINOV2_MODEL_NAME,
+        model_revision=DINOV2_MODEL_REVISION,
+        device=DINOV2_DEVICE,
+        input_size=DINOV2_INPUT_SIZE,
+        pooling_mode=DINOV2_POOLING_MODE,
+        patch_assignment_mode=DINOV2_PATCH_ASSIGNMENT_MODE,
+        use_fp16=DINOV2_USE_FP16,
+        local_files_only=DINOV2_LOCAL_FILES_ONLY,
+    )
+
+    def compute_dinov2_region_embeddings(image, seg):
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if image.ndim == 3 else image
+        result = descriptor.describe_image(
+            image=image_rgb,
+            segmentation=seg,
+            return_scalars=False,
+            return_patch_embeddings=False,
+        )
+        return result.region_embeddings
+
+    compute_dinov2_region_embeddings.__name__ = "compute_dinov2_region_embeddings"
+    return compute_dinov2_region_embeddings
+
+
+compute_dinov2_region_embeddings = make_dinov2_embedding_descriptor()
 
 COMBO_MATRIX = [
     # ("slic + lbp_mean",        slic_superpixels,      compute_lbp_mean),
@@ -206,6 +255,9 @@ COMBO_MATRIX = [
     # ("watershed + lbp_entropy",watershed_segmentation, compute_lbp_entropy),
     ("watershed + dwt_ll",     watershed_segmentation, compute_dwt_ll),
     ("watershed + dwt_hh",     watershed_segmentation, compute_dwt_hh),
+    ("slic + dinov2_embeddings", slic_superpixels, compute_dinov2_region_embeddings),
+    ("kmeans + dinov2_embeddings", k_means, compute_dinov2_region_embeddings),
+    ("watershed + dinov2_embeddings", watershed_segmentation, compute_dinov2_region_embeddings),
 ]
 
 
@@ -276,6 +328,27 @@ def build_fragfake_pairs(fragfake_dir: str):
     return pairs, id_to_stratum
 
 
+def print_embedding_pair_cosine_similarities(combo_name: str, image_id: str, pair_results: list):
+    embedding_results = [
+        pr for pr in pair_results
+        if pr.embedding_cosine_similarity is not None
+    ]
+    if not embedding_results:
+        return
+
+    print(f"\nEmbedding pair cosine similarities: {combo_name} / {image_id}")
+    print(f"  {'Pair':>13}  {'Cosine Similarity':>20}  {'Status':>20}")
+    print(f"  {'-'*13}  {'-'*20}  {'-'*20}")
+    for pr in pair_results:
+        pair = f"({pr.pair_id[0]},{pr.pair_id[1]})"
+        cosine = (
+            repr(pr.embedding_cosine_similarity)
+            if pr.embedding_cosine_similarity is not None
+            else "None"
+        )
+        print(f"  {pair:>13}  {cosine:>20}  {pr.status:>20}")
+
+
 # --------------------------------------------------------------------------
 # MAIN
 # --------------------------------------------------------------------------
@@ -333,9 +406,12 @@ def main():
                         after_image        = actual_after,
                         correspondence_map = corr,
                         image_id           = image_id,
+                        embedding_similarity_threshold=EMBEDDING_SIMILARITY_THRESHOLD,
                         seg_before         = seg_b,
                         seg_after          = seg_a,
                     )
+                    if PRINT_EMBEDDING_PAIR_COSINES:
+                        print_embedding_pair_cosine_similarities(name, image_id, results)
                     all_results[name].extend(results)
                 except Exception as e:
                     print(f"\n  WARN: {name} failed on {image_id}: {e}")

@@ -1,4 +1,6 @@
 huggingface_hub
+torch
+transformers
 opencv-python
 numpy
 pandas
@@ -6,6 +8,7 @@ pyarrow
 tqdm
 pytest
 scipy
+PyWavelets
 scikit-image
 scikit-learn
 matplotlib
