@@ -21,7 +21,7 @@ from PIL import Image
 import torch
 import torch.nn.functional as F
 
-from dinov2_region_descriptor import DinoV2WholeImageRegionDescriptor
+from descriptors.dinov2_region_descriptor import DinoV2WholeImageRegionDescriptor
 
 
 def load_sample_image(path: str | None) -> Image.Image:

@@ -167,7 +167,7 @@ from stability.region_matching import match_regions
 from regions.approach_regions import slic_superpixels, k_means, watershed_segmentation
 from descriptors.lbp_descriptor import compute_lbp_mean, compute_lbp_entropy, compute_lbp_nonuniform, compute_lbp_edge
 from descriptors.dwt_descriptor import compute_dwt_ll, compute_dwt_lh, compute_dwt_hl, compute_dwt_hh
-from dinov2_region_descriptor import DinoV2WholeImageRegionDescriptor
+from descriptors.dinov2_region_descriptor import DinoV2WholeImageRegionDescriptor
 
 
 # --------------------------------------------------------------------------

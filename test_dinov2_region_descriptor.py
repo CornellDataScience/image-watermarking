@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from dinov2_region_descriptor import (
+from descriptors.dinov2_region_descriptor import (
     DinoV2WholeImageRegionDescriptor,
     ImageMetadata,
     PatchMetadata,
