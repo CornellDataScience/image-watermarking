@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from typing import Dict, Optional
 from core.types import SegmentationResult
 
 
@@ -37,7 +38,7 @@ def match_regions(
     seg_before: SegmentationResult,
     seg_after: SegmentationResult,
     iou_threshold: float = 0.5,
-) -> dict[int, int | None]:
+) -> Dict[int, Optional[int]]:
     """Hungarian-matched correspondence from before-region ids to after-region ids.
 
     Matches below iou_threshold are dropped and map to None.
@@ -45,7 +46,7 @@ def match_regions(
     iou = compute_iou_matrix(seg_before, seg_after)
     row_ind, col_ind = linear_sum_assignment(-iou)
 
-    correspondence: dict[int, int | None] = {i: None for i in range(seg_before.num_regions)}
+    correspondence: Dict[int, Optional[int]] = {i: None for i in range(seg_before.num_regions)}
     for r, c in zip(row_ind, col_ind):
         if iou[r, c] >= iou_threshold:
             correspondence[r] = c
