@@ -20,7 +20,7 @@ from watermark.centroid_matching import compute_region_centroids, match_regions_
 DEFAULT_PARAMS = EncodeParams(k=11, rs_overhead=2.0, min_margin=0.05)
 
 
-def run_encode(image_path, message, key):
+def run_encode(image_path, message, key, k):
     if image_path is None:
         return None, "Upload an image first."
     if not message.strip():
@@ -39,8 +39,10 @@ def run_encode(image_path, message, key):
     if len(msg_bytes) > 127:
         return None, f"Message too long ({len(msg_bytes)} bytes). Max is 127 bytes at 2× RS overhead."
 
+    params = EncodeParams(k=int(k), rs_overhead=DEFAULT_PARAMS.rs_overhead, min_margin=DEFAULT_PARAMS.min_margin)
+
     try:
-        sidecar = encode_watermark(image, msg_bytes, key_int, DEFAULT_PARAMS)
+        sidecar = encode_watermark(image, msg_bytes, key_int, params)
     except ValueError as e:
         return None, f"Encode error: {e}"
 
@@ -195,12 +197,13 @@ with gr.Blocks(title="Image Watermarking Demo") as demo:
                 enc_image   = gr.Image(label="Original image", type="filepath")
                 enc_message = gr.Textbox(label="Message to encode", placeholder="hi im a dog named bruno")
                 enc_key     = gr.Textbox(label="Watermark ID", value="42")
+                enc_k       = gr.Slider(minimum=3, maximum=21, step=2, value=11, label="k (witnesses per bit)")
                 enc_btn     = gr.Button("Encode", variant="primary")
             with gr.Column():
                 enc_sidecar = gr.File(label="Download sidecar (.wm)")
                 enc_summary = gr.Textbox(label="Summary", lines=10, interactive=False)
 
-        enc_btn.click(fn=run_encode, inputs=[enc_image, enc_message, enc_key], outputs=[enc_sidecar, enc_summary])
+        enc_btn.click(fn=run_encode, inputs=[enc_image, enc_message, enc_key, enc_k], outputs=[enc_sidecar, enc_summary])
 
     with gr.Tab("Decode"):
         gr.Markdown("Upload the **altered image** and the **sidecar (.wm)** from the encode step. Optionally upload the original image for full diagnostics.")
