@@ -1,4 +1,5 @@
 huggingface_hub
+reedsolo
 opencv-python
 numpy
 pandas
