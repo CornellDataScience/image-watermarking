@@ -14,13 +14,13 @@ from watermark.reed_solomon import rs_encode_bytes, bytes_to_bits, ERASURE, bits
 
 # ── EDIT THESE ────────────────────────────────────────────────────────────────
 ORIGINAL_IMAGE  = "data/dog.jpg"
-ALTERED_IMAGE   = "data/dog_altered3.jpg"   # swap this to test a new edit
+ALTERED_IMAGE   = "data/dog_altered_chatgpt_marker.jpg"   # swap this to test a new edit
 MESSAGE         = b"hi im a dog named bruno"
 KEY             = 42
 SIDECAR_PATH    = "dog_bruno.wm"
 
 PARAMS = EncodeParams(
-    k            = 7,
+    k            = 11,
     rs_overhead  = 2.0,
     min_margin   = 0.05,
 )
@@ -46,12 +46,21 @@ def decode():
     sidecar = sidecar_from_file(SIDECAR_PATH)
     print(f"Decoding {ALTERED_IMAGE} ({after.shape[1]}×{after.shape[0]} px)")
 
+    # Resize to original dimensions before SLIC — same as decoder does internally.
+    meta = sidecar.metadata
+    before_h, before_w = meta.get("image_height"), meta.get("image_width")
+    if before_h and before_w and (after.shape[0], after.shape[1]) != (before_h, before_w):
+        after_diag = cv2.resize(after, (before_w, before_h), interpolation=cv2.INTER_LINEAR)
+        print(f"  (resized to {before_w}×{before_h} for diagnostics)")
+    else:
+        after_diag = after
+
     # Diagnostics — run manually so we can show raw output even on RS failure
     orig  = cv2.imread(ORIGINAL_IMAGE)
     seg_o = slic_superpixels(orig)
-    seg_a = slic_superpixels(after)
-    d_o   = compute_raw_dwt_ll(orig,  seg_o)
-    d_a   = compute_raw_dwt_ll(after, seg_a)
+    seg_a = slic_superpixels(after_diag)
+    d_o   = compute_raw_dwt_ll(orig,      seg_o)
+    d_a   = compute_raw_dwt_ll(after_diag, seg_a)
     c_a   = compute_region_centroids(seg_a)
 
     match  = match_regions_by_centroid(sidecar.centroids, c_a, centroid_threshold=40.0)
