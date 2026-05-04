@@ -17,7 +17,7 @@ from descriptors.dwt_descriptor import compute_raw_dwt_ll
 from watermark.centroid_matching import compute_region_centroids, match_regions_by_centroid
 
 
-DEFAULT_PARAMS = EncodeParams(k=7, rs_overhead=2.0, min_margin=0.05)
+DEFAULT_PARAMS = EncodeParams(k=11, rs_overhead=2.0, min_margin=0.05)
 
 
 def run_encode(image_path, message, key):
@@ -92,7 +92,7 @@ def run_decode(altered_image_path, sidecar_path, original_image_path):
     msg_len     = meta.get("message_length", None)
     rs_overhead = meta.get("rs_overhead", 2.0)
     min_margin  = meta.get("min_margin", 0.05)
-    k           = meta.get("k", 7)
+    k           = meta.get("k", 11)
 
     # Resize altered image the same way the decoder does
     before_h = meta.get("image_height")
@@ -194,7 +194,7 @@ with gr.Blocks(title="Image Watermarking Demo") as demo:
             with gr.Column():
                 enc_image   = gr.Image(label="Original image", type="filepath")
                 enc_message = gr.Textbox(label="Message to encode", placeholder="hi im a dog named bruno")
-                enc_key     = gr.Textbox(label="Secret key (integer)", value="42")
+                enc_key     = gr.Textbox(label="Watermark ID", value="42")
                 enc_btn     = gr.Button("Encode", variant="primary")
             with gr.Column():
                 enc_sidecar = gr.File(label="Download sidecar (.wm)")
