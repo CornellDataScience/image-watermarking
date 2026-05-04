@@ -20,7 +20,7 @@ from watermark.centroid_matching import compute_region_centroids, match_regions_
 DEFAULT_PARAMS = EncodeParams(k=11, rs_overhead=2.0, min_margin=0.05)
 
 
-def run_encode(image_path, message, key):
+def run_encode(image_path, message, k, rs_overhead, key):
     if image_path is None:
         return None, "Upload an image first."
     if not message.strip():
@@ -39,8 +39,10 @@ def run_encode(image_path, message, key):
     if len(msg_bytes) > 127:
         return None, f"Message too long ({len(msg_bytes)} bytes). Max is 127 bytes at 2× RS overhead."
 
+    params = EncodeParams(k=int(k), rs_overhead=float(rs_overhead), min_margin=DEFAULT_PARAMS.min_margin)
+
     try:
-        sidecar = encode_watermark(image, msg_bytes, key_int, DEFAULT_PARAMS)
+        sidecar = encode_watermark(image, msg_bytes, key_int, params)
     except ValueError as e:
         return None, f"Encode error: {e}"
 
@@ -53,6 +55,8 @@ def run_encode(image_path, message, key):
         f"Encoded successfully.\n\n"
         f"  Message:          \"{message}\"\n"
         f"  Message length:   {len(msg_bytes)} bytes\n"
+        f"  k:                {int(k)} witnesses/bit\n"
+        f"  RS overhead:      {float(rs_overhead):.1f}×\n"
         f"  RS-encoded bits:  {len(sidecar.pairs)}\n"
         f"  Regions used:     {len(sidecar.centroids)}\n"
         f"  Sidecar size:     {size_kb:.1f} KB\n"
@@ -124,8 +128,6 @@ def run_decode(altered_image_path, sidecar_path, original_image_path):
             seg_o = slic_superpixels(orig)
             d_o   = compute_raw_dwt_ll(orig, seg_o)
 
-            # Reconstruct the encoded bits from the sidecar's pair ordering
-            # (infer expected bit per position from which pool it came from)
             voted_bits = []
             correct = wrong = erased_bits = 0
 
@@ -142,7 +144,6 @@ def run_decode(altered_image_path, sidecar_path, original_image_path):
                     maj = 1 if sum(votes) > len(votes) / 2 else 0
                     voted_bits.append(maj)
 
-            # Infer expected bits from original descriptor ordering in the pair table
             for j, (pairs_j, vb) in enumerate(zip(sidecar.pairs, voted_bits)):
                 if vb == ERASURE: continue
                 r1, r2 = pairs_j[0]
@@ -172,13 +173,14 @@ def run_decode(altered_image_path, sidecar_path, original_image_path):
 
     lines.append(f"\nDiagnostics:")
     lines.append(f"  Image dimensions:  {after.shape[1]}×{after.shape[0]} px  (original: {before_w}×{before_h})")
+    lines.append(f"  k:                 {k}  |  RS overhead: {rs_overhead:.1f}×")
     lines.append(f"  Regions found:     {total_regions - erased_regions}/{total_regions} ({100*(total_regions-erased_regions)/total_regions:.1f}%)")
 
     if flip_rate is not None:
         lines.append(f"  Bit flip rate:     {flip_rate*100:.2f}%  ({wrong} wrong / {non_erased} non-erased bits)")
         lines.append(f"  Byte error rate:   {byte_err*100:.1f}%")
         if rs_cap is not None:
-            lines.append(f"  RS {rs_overhead:.0f}x capacity:     {rs_cap*100:.1f}%  ({'OK' if byte_err < rs_cap else 'EXCEEDED'})")
+            lines.append(f"  RS {rs_overhead:.1f}x capacity:    {rs_cap*100:.1f}%  ({'OK' if byte_err < rs_cap else 'EXCEEDED'})")
     else:
         lines.append(f"  (Upload original image to see bit-level diagnostics)")
 
@@ -194,13 +196,24 @@ with gr.Blocks(title="Image Watermarking Demo") as demo:
             with gr.Column():
                 enc_image   = gr.Image(label="Original image", type="filepath")
                 enc_message = gr.Textbox(label="Message to encode", placeholder="hi im a dog named bruno")
-                enc_key     = gr.Textbox(label="Watermark ID", value="42")
-                enc_btn     = gr.Button("Encode", variant="primary")
+                enc_k       = gr.Slider(
+                    minimum=3, maximum=21, step=2, value=7,
+                    label="k — witnesses per bit",
+                    info="How many region pairs vote on each bit. Higher = more robust against image edits, but needs more regions. Try 7 for light edits, 11–15 for heavy ones.",
+                )
+                enc_rs      = gr.Slider(
+                    minimum=1.5, maximum=4.0, step=0.5, value=2.0,
+                    label="RS overhead — redundancy multiplier",
+                    info="How many times the payload is expanded for error correction. 2× can fix ~25% bit errors; 3× can fix ~33%. Higher = more resilient, but fewer messages fit.",
+                )
+                with gr.Accordion("Advanced", open=False):
+                    enc_key = gr.Textbox(label="Watermark ID", value="42", info="Seeds the pair assignment — change this if you need two watermarks on the same image to not interfere.")
+                enc_btn = gr.Button("Encode", variant="primary")
             with gr.Column():
                 enc_sidecar = gr.File(label="Download sidecar (.wm)")
-                enc_summary = gr.Textbox(label="Summary", lines=10, interactive=False)
+                enc_summary = gr.Textbox(label="Summary", lines=12, interactive=False)
 
-        enc_btn.click(fn=run_encode, inputs=[enc_image, enc_message, enc_key], outputs=[enc_sidecar, enc_summary])
+        enc_btn.click(fn=run_encode, inputs=[enc_image, enc_message, enc_k, enc_rs, enc_key], outputs=[enc_sidecar, enc_summary])
 
     with gr.Tab("Decode"):
         gr.Markdown("Upload the **altered image** and the **sidecar (.wm)** from the encode step. Optionally upload the original image for full diagnostics.")
