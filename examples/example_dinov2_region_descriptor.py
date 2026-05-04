@@ -6,15 +6,20 @@ image, pools patch embeddings per region, and prints descriptor diagnostics.
 
 Examples
 --------
-    python example_dinov2_region_descriptor.py
-    python example_dinov2_region_descriptor.py --image data/dog.jpg --device cpu
-    python example_dinov2_region_descriptor.py --target-regions 0 2
+    python examples/example_dinov2_region_descriptor.py
+    python examples/example_dinov2_region_descriptor.py --image data/dog.jpg --device cpu
+    python examples/example_dinov2_region_descriptor.py --target-regions 0 2
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 from PIL import Image
