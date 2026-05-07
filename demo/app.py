@@ -55,7 +55,7 @@ def run_encode(image_path, message, k, rs_overhead, key, method):
         return None, f"Message too long ({len(msg_bytes)} bytes). Max is 127 bytes at 2× RS overhead."
 
     params3 = EncodeParams(k=int(k), rs_overhead=float(rs_overhead), min_margin=0.05)
-    params2 = EncodeParamsB(k=int(k), rs_overhead=float(rs_overhead), min_margin=0.05, iou_threshold=0.5)
+    params2 = EncodeParamsB(k=int(k), rs_overhead=float(rs_overhead), min_margin=0.05, iou_threshold=0.25)
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wm", delete=False)
     tmp.close()
