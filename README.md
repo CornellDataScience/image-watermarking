@@ -395,3 +395,19 @@ Drawn from the open questions in the docs, in rough priority order:
    and heavier ECC.
 4. **Fix the margin-retention overflow** in `evaluation_metrics.py` (one-function fix).
 5. **Scale the evaluation to 50+ pairs per stratum** — several buckets currently have only 2–4 pairs.
+
+---
+
+## Team
+
+Built by the image watermarking team at [Cornell Data Science](https://github.com/CornellDataScience).
+
+| Member | Role |
+|---|---|
+| Monisha Bommu | Tech Lead |
+| Duru Alalyi | Project Manager |
+| Jay Talwar | Member |
+| Andy Do | Member |
+| Agrim Jaimini | Member |
+| Pete Olhava | Member |
+| Aydan Gerber | Member |
