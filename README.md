@@ -1,4 +1,4 @@
-# Pairwise Ordinal Image Watermarking
+# Semantic Image Watermarking for AI-Edit Robustness
 
 A watermark that survives AI image editing — **without modifying a single pixel**.
 
